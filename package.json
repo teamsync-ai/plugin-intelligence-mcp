@@ -10,12 +10,12 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
-    "agents": "latest",
-    "zod": "latest"
+    "agents": "0.20.0",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
-    "typescript": "latest",
-    "wrangler": "latest"
+    "typescript": "^5.9.0",
+    "wrangler": "^4.0.0"
   }
 }
