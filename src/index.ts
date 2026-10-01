@@ -132,7 +132,7 @@ function summarizeResults(results: any[]) {
 function createServer(env: Env) {
   const server = new McpServer({
     name: "plugin-intelligence-mcp",
-    version: "1.4.0",
+    version: "1.5.0",
   });
 
   server.registerTool(
@@ -377,6 +377,34 @@ function createServer(env: Env) {
     },
   );
 
+
+  server.registerTool(
+    "release_gate",
+    {
+      description:
+        "Evaluate release readiness for a plugin version using persisted evidence and configured gate thresholds from the Apps Script backend.",
+      inputSchema: {
+        plugin_name: z.string().min(1),
+        version: z.union([z.string(), z.number()]),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ plugin_name, version }) => {
+      const data = await callAppsScript(env, "release_gate_data", {
+        plugin_name,
+        version: String(version),
+      });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(data) }],
+      };
+    },
+  );
+
   return server;
 }
 
@@ -392,7 +420,7 @@ export default {
       return Response.json({
         ok: true,
         service: "plugin-intelligence-mcp",
-        version: "1.4.0",
+        version: "1.5.0",
         mcp_endpoint: "/mcp",
       });
     }
