@@ -3,5 +3,8 @@
   "name": "plugin-intelligence-mcp",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-30",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "APPS_SCRIPT_URL": "https://script.google.com/macros/s/AKfycbw6mn9NvfQL5oRtfPFGKqlG1IFi7-Vxet1kL03uc4_mP9GrZjMIgTeLxaWxWBDIyvqU4g/exec"
+  }
 }
