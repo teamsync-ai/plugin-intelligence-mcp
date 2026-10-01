@@ -24,9 +24,35 @@ async function callAppsScript(
 
   const response = await fetch(url.toString(), {
     method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Apps Script returned HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function postAppsScript(
+  env: Env,
+  action: string,
+  payload: Record<string, unknown>,
+) {
+  if (!env.APPS_SCRIPT_URL) {
+    throw new Error("APPS_SCRIPT_URL is not configured");
+  }
+
+  const url = new URL(env.APPS_SCRIPT_URL);
+  url.searchParams.set("action", action);
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
     headers: {
       Accept: "application/json",
+      "Content-Type": "application/json",
     },
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -39,7 +65,7 @@ async function callAppsScript(
 function createServer(env: Env) {
   const server = new McpServer({
     name: "plugin-intelligence-mcp",
-    version: "1.2.0",
+    version: "1.3.0",
   });
 
   server.registerTool(
@@ -54,18 +80,14 @@ function createServer(env: Env) {
         openWorldHint: false,
       },
     },
-    async () => {
-      const data = await callAppsScript(env, "get_plugins");
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(data),
-          },
-        ],
-      };
-    },
+    async () => ({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(await callAppsScript(env, "get_plugins")),
+        },
+      ],
+    }),
   );
 
   server.registerTool(
@@ -74,10 +96,7 @@ function createServer(env: Env) {
       description:
         "Get details for one plugin by plugin name from the Google Sheet backend.",
       inputSchema: {
-        plugin_name: z
-          .string()
-          .min(1)
-          .describe("Exact plugin name, for example UGC Market Commander"),
+        plugin_name: z.string().min(1),
       },
       annotations: {
         readOnlyHint: true,
@@ -85,37 +104,26 @@ function createServer(env: Env) {
         openWorldHint: false,
       },
     },
-    async ({ plugin_name }) => {
-      const data = await callAppsScript(env, "get_plugin_details", {
-        plugin_name,
-      });
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(data),
-          },
-        ],
-      };
-    },
+    async ({ plugin_name }) => ({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            await callAppsScript(env, "get_plugin_details", { plugin_name }),
+          ),
+        },
+      ],
+    }),
   );
 
   server.registerTool(
     "get_golden_tests",
     {
       description:
-        "Get Golden Test cases from the Google Sheet backend, optionally filtered by plugin name and version.",
+        "Get Golden Test cases, optionally filtered by plugin name and version.",
       inputSchema: {
-        plugin_name: z
-          .string()
-          .min(1)
-          .optional()
-          .describe("Optional exact plugin name to filter Golden Tests"),
-        version: z
-          .union([z.string(), z.number()])
-          .optional()
-          .describe("Optional plugin version to filter Golden Tests"),
+        plugin_name: z.string().min(1).optional(),
+        version: z.union([z.string(), z.number()]).optional(),
       },
       annotations: {
         readOnlyHint: true,
@@ -125,24 +133,64 @@ function createServer(env: Env) {
     },
     async ({ plugin_name, version }) => {
       const params: Record<string, string> = {};
-
-      if (plugin_name) {
-        params.plugin_name = plugin_name;
-      }
-
-      if (version !== undefined) {
-        params.version = String(version);
-      }
-
-      const data = await callAppsScript(env, "get_golden_tests", params);
+      if (plugin_name) params.plugin_name = plugin_name;
+      if (version !== undefined) params.version = String(version);
 
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(data),
+            text: JSON.stringify(
+              await callAppsScript(env, "get_golden_tests", params),
+            ),
           },
         ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "save_test_result",
+    {
+      description:
+        "Persist one executed Golden Test result to the Google Sheet evidence store.",
+      inputSchema: {
+        test_id: z.string().min(1),
+        plugin: z.string().min(1),
+        version: z.union([z.string(), z.number()]),
+        actual_route: z.string().min(1),
+        actual_outcome: z.string().min(1),
+        status: z.enum(["PASS", "FAIL", "PARTIAL"]),
+        failure_reason: z.string().optional(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({
+      test_id,
+      plugin,
+      version,
+      actual_route,
+      actual_outcome,
+      status,
+      failure_reason,
+    }) => {
+      const data = await postAppsScript(env, "save_test_result", {
+        test_id,
+        plugin,
+        version,
+        actual_route,
+        actual_outcome,
+        status,
+        failure_reason: failure_reason ?? "",
+      });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(data) }],
       };
     },
   );
@@ -162,7 +210,7 @@ export default {
       return Response.json({
         ok: true,
         service: "plugin-intelligence-mcp",
-        version: "1.2.0",
+        version: "1.3.0",
         mcp_endpoint: "/mcp",
       });
     }
