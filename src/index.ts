@@ -39,7 +39,7 @@ async function callAppsScript(
 function createServer(env: Env) {
   const server = new McpServer({
     name: "plugin-intelligence-mcp",
-    version: "1.1.0",
+    version: "1.2.0",
   });
 
   server.registerTool(
@@ -101,6 +101,52 @@ function createServer(env: Env) {
     },
   );
 
+  server.registerTool(
+    "get_golden_tests",
+    {
+      description:
+        "Get Golden Test cases from the Google Sheet backend, optionally filtered by plugin name and version.",
+      inputSchema: {
+        plugin_name: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Optional exact plugin name to filter Golden Tests"),
+        version: z
+          .union([z.string(), z.number()])
+          .optional()
+          .describe("Optional plugin version to filter Golden Tests"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ plugin_name, version }) => {
+      const params: Record<string, string> = {};
+
+      if (plugin_name) {
+        params.plugin_name = plugin_name;
+      }
+
+      if (version !== undefined) {
+        params.version = String(version);
+      }
+
+      const data = await callAppsScript(env, "get_golden_tests", params);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(data),
+          },
+        ],
+      };
+    },
+  );
+
   return server;
 }
 
@@ -116,7 +162,7 @@ export default {
       return Response.json({
         ok: true,
         service: "plugin-intelligence-mcp",
-        version: "1.1.0",
+        version: "1.2.0",
         mcp_endpoint: "/mcp",
       });
     }
