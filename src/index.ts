@@ -86,10 +86,53 @@ async function postAppsScript(
   }
 }
 
+function latestByTestId(results: any[]) {
+  const map = new Map<string, any>();
+
+  for (const row of results ?? []) {
+    const key = String(row.test_id ?? "");
+    if (!key) continue;
+
+    const current = map.get(key);
+    const rowTime = Date.parse(String(row.executed_at ?? "")) || 0;
+    const currentTime = current
+      ? Date.parse(String(current.executed_at ?? "")) || 0
+      : -1;
+
+    if (!current || rowTime >= currentTime) {
+      map.set(key, row);
+    }
+  }
+
+  return map;
+}
+
+function summarizeResults(results: any[]) {
+  const latest = [...latestByTestId(results).values()];
+  const counts = { PASS: 0, FAIL: 0, PARTIAL: 0 };
+
+  for (const row of latest) {
+    const status = String(row.status ?? "").toUpperCase();
+    if (status === "PASS" || status === "FAIL" || status === "PARTIAL") {
+      counts[status]++;
+    }
+  }
+
+  const total = latest.length;
+
+  return {
+    executed_test_count: total,
+    pass_count: counts.PASS,
+    fail_count: counts.FAIL,
+    partial_count: counts.PARTIAL,
+    pass_rate: total ? Number(((counts.PASS / total) * 100).toFixed(2)) : 0,
+  };
+}
+
 function createServer(env: Env) {
   const server = new McpServer({
     name: "plugin-intelligence-mcp",
-    version: "1.3.2",
+    version: "1.4.0",
   });
 
   server.registerTool(
@@ -219,6 +262,121 @@ function createServer(env: Env) {
     },
   );
 
+  server.registerTool(
+    "get_test_history",
+    {
+      description:
+        "Get persisted test-result history, optionally filtered by plugin, version, test id, or status.",
+      inputSchema: {
+        plugin_name: z.string().min(1).optional(),
+        version: z.union([z.string(), z.number()]).optional(),
+        test_id: z.string().min(1).optional(),
+        status: z.enum(["PASS", "FAIL", "PARTIAL"]).optional(),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ plugin_name, version, test_id, status }) => {
+      const params: Record<string, string> = {};
+      if (plugin_name) params.plugin_name = plugin_name;
+      if (version !== undefined) params.version = String(version);
+      if (test_id) params.test_id = test_id;
+      if (status) params.status = status;
+
+      const data = await callAppsScript(env, "get_test_history", params);
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(data) }],
+      };
+    },
+  );
+
+  server.registerTool(
+    "compare_versions",
+    {
+      description:
+        "Compare the latest persisted test results for two versions of the same plugin, including pass rates, regressions, and improvements.",
+      inputSchema: {
+        plugin_name: z.string().min(1),
+        version_a: z.union([z.string(), z.number()]),
+        version_b: z.union([z.string(), z.number()]),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ plugin_name, version_a, version_b }) => {
+      const [a, b] = await Promise.all([
+        callAppsScript(env, "get_test_history", {
+          plugin_name,
+          version: String(version_a),
+        }),
+        callAppsScript(env, "get_test_history", {
+          plugin_name,
+          version: String(version_b),
+        }),
+      ]);
+
+      const resultsA = Array.isArray(a.results) ? a.results : [];
+      const resultsB = Array.isArray(b.results) ? b.results : [];
+
+      const mapA = latestByTestId(resultsA);
+      const mapB = latestByTestId(resultsB);
+
+      const commonIds = [...mapA.keys()].filter((id) => mapB.has(id));
+      const regressions: any[] = [];
+      const improvements: any[] = [];
+      const unchanged: any[] = [];
+
+      for (const testId of commonIds) {
+        const rowA = mapA.get(testId);
+        const rowB = mapB.get(testId);
+        const statusA = String(rowA?.status ?? "");
+        const statusB = String(rowB?.status ?? "");
+
+        const item = {
+          test_id: testId,
+          from: statusA,
+          to: statusB,
+        };
+
+        if (statusA === "PASS" && statusB !== "PASS") {
+          regressions.push(item);
+        } else if (statusA !== "PASS" && statusB === "PASS") {
+          improvements.push(item);
+        } else {
+          unchanged.push(item);
+        }
+      }
+
+      const data = {
+        ok: true,
+        plugin: plugin_name,
+        version_a,
+        version_b,
+        version_a_summary: summarizeResults(resultsA),
+        version_b_summary: summarizeResults(resultsB),
+        comparable_test_count: commonIds.length,
+        regression_count: regressions.length,
+        improvement_count: improvements.length,
+        regressions,
+        improvements,
+        unchanged,
+        comparison_note:
+          "Comparison uses the latest persisted result for each shared test_id in each version.",
+      };
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(data) }],
+      };
+    },
+  );
+
   return server;
 }
 
@@ -234,7 +392,7 @@ export default {
       return Response.json({
         ok: true,
         service: "plugin-intelligence-mcp",
-        version: "1.3.2",
+        version: "1.4.0",
         mcp_endpoint: "/mcp",
       });
     }
