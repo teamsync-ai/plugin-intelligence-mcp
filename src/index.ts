@@ -62,18 +62,34 @@ async function postAppsScript(
     method: "POST",
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json",
+      "Content-Type": "text/plain;charset=utf-8",
     },
     body: JSON.stringify(payload),
   });
 
-  return parseJsonResponse(response, `Apps Script POST ${action}`);
+  const contentType = response.headers.get("content-type") ?? "unknown";
+  const finalUrl = response.url;
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `Apps Script POST ${action} returned HTTP ${response.status}; content-type=${contentType}; final-url=${finalUrl}; body=${text.slice(0, 500)}`,
+    );
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Apps Script POST ${action} returned non-JSON; content-type=${contentType}; final-url=${finalUrl}; body=${text.slice(0, 500)}`,
+    );
+  }
 }
 
 function createServer(env: Env) {
   const server = new McpServer({
     name: "plugin-intelligence-mcp",
-    version: "1.3.1",
+    version: "1.3.2",
   });
 
   server.registerTool(
@@ -218,7 +234,7 @@ export default {
       return Response.json({
         ok: true,
         service: "plugin-intelligence-mcp",
-        version: "1.3.1",
+        version: "1.3.2",
         mcp_endpoint: "/mcp",
       });
     }
