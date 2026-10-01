@@ -6,6 +6,22 @@ interface Env {
   APPS_SCRIPT_URL: string;
 }
 
+async function parseJsonResponse(response: Response, context: string) {
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`${context} returned HTTP ${response.status}: ${text.slice(0, 500)}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `${context} returned non-JSON response: ${text.slice(0, 500)}`,
+    );
+  }
+}
+
 async function callAppsScript(
   env: Env,
   action: string,
@@ -27,11 +43,7 @@ async function callAppsScript(
     headers: { Accept: "application/json" },
   });
 
-  if (!response.ok) {
-    throw new Error(`Apps Script returned HTTP ${response.status}`);
-  }
-
-  return response.json();
+  return parseJsonResponse(response, `Apps Script GET ${action}`);
 }
 
 async function postAppsScript(
@@ -55,17 +67,13 @@ async function postAppsScript(
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
-    throw new Error(`Apps Script returned HTTP ${response.status}`);
-  }
-
-  return response.json();
+  return parseJsonResponse(response, `Apps Script POST ${action}`);
 }
 
 function createServer(env: Env) {
   const server = new McpServer({
     name: "plugin-intelligence-mcp",
-    version: "1.3.0",
+    version: "1.3.1",
   });
 
   server.registerTool(
@@ -210,7 +218,7 @@ export default {
       return Response.json({
         ok: true,
         service: "plugin-intelligence-mcp",
-        version: "1.3.0",
+        version: "1.3.1",
         mcp_endpoint: "/mcp",
       });
     }
